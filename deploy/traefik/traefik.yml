@@ -1,0 +1,77 @@
+# Traefik v3 static configuration.
+#
+# We use the file provider rather than Docker label discovery on purpose: the
+# whole routing table stays readable in one file (deploy/traefik/dynamic.yml),
+# which matters more for this project than auto-discovery. Traefik watches that
+# file, so route changes take effect without restarting the gateway.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        X-Request-Id: keep
+
+entryPoints:
+  # Public API surface. Everything a browser or mobile client talks to comes
+  # in here; published on host port 8080.
+  web:
+    address: ":80"
+    transport:
+      respondingTimeouts:
+        # readTimeout MUST stay 0 while /ws/chat is routed through this
+        # entrypoint, and this is not a tuning preference.
+        #
+        # Traefik v3 defaults it to 60s (v2 defaulted to 0). It is a deadline on
+        # reading the whole request, which Go's net/http implements as a read
+        # deadline on the connection — set once, when the request starts, and
+        # never extended. A websocket handshake is a request that never
+        # finishes, so the deadline stays armed after the upgrade and kills the
+        # connection sixty seconds after it opened, healthy or not. What that
+        # looks like from the client is a socket that closes at ~59s with
+        # nothing on either end having asked it to, and it is unrelated to the
+        # chat service's own keepalive: that pings every 30s and the pong
+        # restarts *its* deadline (services/chat/internal/hub/conn.go, and
+        # TestAnIdleSocketOutlivesThePongTimeout holds one idle for 90s to prove
+        # it). No amount of pinging refreshes a deadline the gateway set.
+        #
+        # Zero here rather than a large number: any finite value is the same bug
+        # with a longer fuse, since it caps the lifetime of a connection that is
+        # meant to live as long as the tab. Slow-request protection is kept
+        # per-operation in the services instead — each has a ReadHeaderTimeout
+        # on the handshake, and the chat sockets have a read limit and a write
+        # deadline per frame.
+        readTimeout: 0
+        # Unchanged from the default, stated because the three are read
+        # together: this one bounds an *idle keep-alive* connection between
+        # requests and does not apply to a hijacked one.
+        idleTimeout: 180s
+
+  # Operational entrypoint: dashboard, API and ping. Published on host port
+  # 8081 and never routed to from the web entrypoint.
+  traefik:
+    address: ":8081"
+
+api:
+  dashboard: true
+  # Local development only: serves the dashboard unauthenticated on the
+  # `traefik` entrypoint.
+  insecure: true
+
+ping:
+  entryPoint: traefik
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true

@@ -1,0 +1,15 @@
+# Everything the build does not need. Keeping the context small matters more
+# here than usual: `COPY . .` in the builder stage would otherwise pull in the
+# whole module cache if one were ever vendored.
+.git
+.gitignore
+*.md
+Dockerfile
+.dockerignore
+
+# Build output and test scratch.
+bin/
+server
+migrate
+*.test
+*.out

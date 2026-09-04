@@ -1,0 +1,324 @@
+# TogetherGo — local infrastructure and application services.
+#
+# Backing services (postgres, redis, rabbitmq, mailhog, traefik) plus the
+# application services built so far. Each application service joins the
+# `togethergo` network and is routed by the gateway through
+# deploy/traefik/dynamic.yml.
+#
+# Migrations are never run on container startup. Bring the stack up, then
+# `make migrate` (or `make migrate-identity` / `make migrate-trip`).
+
+name: togethergo
+
+networks:
+  togethergo:
+    name: togethergo
+    driver: bridge
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  redis_data:
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: togethergo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      # Consumed by deploy/postgres/init/01-databases.sql via psql \getenv.
+      IDENTITY_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:?set IDENTITY_DB_PASSWORD in .env}
+      TRIP_DB_PASSWORD: ${TRIP_DB_PASSWORD:?set TRIP_DB_PASSWORD in .env}
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:?set CHAT_DB_PASSWORD in .env}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?set NOTIFICATION_DB_PASSWORD in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Runs once, on an empty data directory only.
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - togethergo
+
+  redis:
+    image: redis:7-alpine
+    container_name: togethergo-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - togethergo
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: togethergo-rabbitmq
+    restart: unless-stopped
+    # No RABBITMQ_DEFAULT_USER / _PASS here: they would be silently ignored.
+    # A node that has definitions to load logs "Will not seed default virtual
+    # host and user" and skips that seeding entirely, so the user, its
+    # permissions and the vhost all live in definitions.json instead.
+    # `make check-env` fails if the .env credentials drift away from it.
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      # The topology is declared by the broker at boot, not by whichever
+      # service connects first. See deploy/rabbitmq/README.md.
+      - ./deploy/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./deploy/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      # Not just "is it up": the queue check makes the container unhealthy if
+      # the definitions import did not run, so `make up --wait` fails loudly
+      # instead of leaving services to publish into a half-declared broker.
+      test:
+        - "CMD-SHELL"
+        - "rabbitmq-diagnostics -q ping && rabbitmqctl -q list_queues name | grep -qx notification.events"
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - togethergo
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: togethergo-mailhog
+    restart: unless-stopped
+    ports:
+      - "${SMTP_PORT:-1025}:1025"
+      - "${MAILHOG_UI_PORT:-8025}:8025"
+    healthcheck:
+      # The image is Alpine-based: busybox wget is the only HTTP client on it.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8025/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - togethergo
+
+  gateway:
+    image: traefik:v3.1
+    container_name: togethergo-gateway
+    restart: unless-stopped
+    command:
+      - "--configFile=/etc/traefik/traefik.yml"
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+      - "${GATEWAY_DASHBOARD_PORT:-8081}:8081"
+    volumes:
+      - ./deploy/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./deploy/traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - togethergo
+
+  identity:
+    build:
+      context: ./services/identity
+    container_name: togethergo-identity
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      IDENTITY_DATABASE_URL: ${IDENTITY_DATABASE_URL:?set IDENTITY_DATABASE_URL in .env}
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      RABBITMQ_URL: ${RABBITMQ_URL:?set RABBITMQ_URL in .env}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-togethergo.events}
+      # Every /internal caller presents this as X-Internal-Token. Those routes
+      # are not exposed through the gateway; this is the second line of
+      # defence behind that.
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in .env}
+      JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/run/keys/jwt_private.pem}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-RS256}
+      JWT_KEY_ID: ${JWT_KEY_ID:-dev-key-1}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-900}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-2592000}
+      # Identity consumes as well as publishes: `trip.completed` carries the
+      # roster that opens a rating window. The queue is declared by the broker
+      # from deploy/rabbitmq/definitions.json; this only names it.
+      TRIP_EVENTS_QUEUE: ${TRIP_EVENTS_QUEUE:-identity.trip-events}
+      TRIP_EVENTS_CONSUMER_ENABLED: ${TRIP_EVENTS_CONSUMER_ENABLED:-true}
+      # Nightly close-out of rating windows nobody used. Housekeeping only —
+      # every read already filters on expires_at.
+      RATING_SWEEP_INTERVAL: ${RATING_SWEEP_INTERVAL:-86400}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    ports:
+      # Debugging only. Client traffic goes through the gateway on 8080.
+      - "${IDENTITY_PORT:-8001}:8001"
+    volumes:
+      # The RS256 private key, read once at startup. Read-only, and only this
+      # service ever mounts it: no other service has any use for the private
+      # half. Generate it with `make keys`.
+      - ./deploy/keys/jwt_private.pem:/run/keys/jwt_private.pem:ro
+    networks:
+      - togethergo
+
+  trip:
+    build:
+      context: ./services/trip
+    container_name: togethergo-trip
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        # The organizer cache. The service starts and serves search without it
+        # — every page just resolves its organizers straight from identity —
+        # so this is about not starting cold, not about a hard dependency.
+        condition: service_healthy
+      rabbitmq:
+        # The outbox relay connects lazily and retries, so this is not a hard
+        # dependency either: a trip service that starts first accepts requests,
+        # writes its events to the outbox, and publishes them when the broker
+        # appears. Waiting is about `make up --wait` not reporting the stack
+        # healthy while /readyz would say the broker is unavailable.
+        condition: service_healthy
+      identity:
+        # Not because the trip service cannot start without it — it fetches the
+        # JWKS lazily, on the first token, and a search page degrades to null
+        # organizer names rather than failing — but so that `make up --wait`
+        # does not report the stack healthy while token verification would
+        # still be failing.
+        condition: service_healthy
+    environment:
+      TRIP_DATABASE_URL: ${TRIP_DATABASE_URL:?set TRIP_DATABASE_URL in .env}
+      # This service verifies JWTs itself against identity's JWKS; it does not
+      # trust a gateway-injected identity header (CLAUDE.md rule 6). The URL is
+      # the internal one — no gateway hop for a service-to-service fetch.
+      JWKS_URL: ${JWKS_URL:-http://identity:8001/.well-known/jwks.json}
+      JWKS_CACHE_TTL: ${JWKS_CACHE_TTL:-600}
+      # Trip discovery resolves organizer ids through identity's batch endpoint
+      # on the internal network. Not the gateway: no router in
+      # deploy/traefik/dynamic.yml matches /internal, deliberately.
+      IDENTITY_INTERNAL_URL: ${IDENTITY_INTERNAL_URL:-http://identity:8001}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in .env}
+      IDENTITY_TIMEOUT_MS: ${IDENTITY_TIMEOUT_MS:-2000}
+      # Resolved users are cached for 60 seconds, the same max-age identity
+      # stamps on that response.
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      USER_CACHE_TTL: ${USER_CACHE_TTL:-60}
+      # Every event this service emits goes through the transactional outbox
+      # and out via the relay goroutine inside the process. The exchange is not
+      # declared here — the broker imports the whole topology at boot from
+      # deploy/rabbitmq/definitions.json — this only names it.
+      RABBITMQ_URL: ${RABBITMQ_URL:?set RABBITMQ_URL in .env}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-togethergo.events}
+      TRIP_OUTBOX_POLL_MS: ${TRIP_OUTBOX_POLL_MS:-500}
+      OUTBOX_RETENTION_DAYS: ${OUTBOX_RETENTION_DAYS:-7}
+      TRIP_SCHEDULER_INTERVAL: ${TRIP_SCHEDULER_INTERVAL:-60}
+      TRIP_SCHEDULER_DEBUG_TICK: ${TRIP_SCHEDULER_DEBUG_TICK:-true}
+      TRIP_PORT: ${TRIP_PORT:-8002}
+      TRIP_DB_MAX_CONNS: ${TRIP_DB_MAX_CONNS:-10}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    ports:
+      # Debugging only. Client traffic goes through the gateway on 8080.
+      - "${TRIP_PORT:-8002}:8002"
+    networks:
+      - togethergo
+
+  chat:
+    build:
+      context: ./services/chat
+    # No `container_name`, unlike every other service here, and no fixed host
+    # port: both would make `docker compose up --scale chat=2` fail before it
+    # started. This is the one service the stack is expected to run more than
+    # one of — the whole point of the Redis fan-out — so it is configured to be
+    # scalable rather than to be conveniently named.
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        # A hard dependency, and the only place in this file where Redis is
+        # one. In trip it is a cache; here it is the ticket store, the rate
+        # limiter and the fan-out between replicas. A chat service without it
+        # can issue no tickets, accept no sockets and deliver nothing written
+        # on another replica.
+        condition: service_healthy
+      rabbitmq:
+        # Rooms and membership are a projection of `chat.trip-events` and
+        # nothing else. The consumer connects lazily and retries, so this is
+        # about `make up --wait` not calling the stack healthy while the
+        # projection is still empty.
+        condition: service_healthy
+      identity:
+        # Token verification is lazy — the JWKS is fetched on the first
+        # request — so this is the same kind of wait: not a hard dependency,
+        # but not something to report as ready either.
+        condition: service_healthy
+      trip:
+        # Not needed to *run*: this service never calls trip, and that is the
+        # architecture rather than an accident. It is here so that a fresh
+        # `make up` brings the publisher of `trip.created` up alongside its
+        # consumer, and an empty room projection is because nothing has been
+        # published yet rather than because nothing was listening.
+        condition: service_healthy
+    environment:
+      CHAT_DATABASE_URL: ${CHAT_DATABASE_URL:?set CHAT_DATABASE_URL in .env}
+      # This service verifies JWTs itself against identity's JWKS; it does not
+      # trust a gateway-injected identity header (CLAUDE.md rule 6). The URL is
+      # the internal one — no gateway hop for a service-to-service fetch.
+      JWKS_URL: ${JWKS_URL:-http://identity:8001/.well-known/jwks.json}
+      JWKS_CACHE_TTL: ${JWKS_CACHE_TTL:-600}
+      # Tickets, presence, the message rate limit, and the pub/sub fan-out that
+      # makes two replicas one chat.
+      REDIS_URL: ${REDIS_URL:?set REDIS_URL in .env}
+      CHAT_TICKET_TTL: ${CHAT_TICKET_TTL:-30}
+      CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-20}
+      CHAT_RATE_WINDOW: ${CHAT_RATE_WINDOW:-10}
+      CHAT_PRESENCE_TTL: ${CHAT_PRESENCE_TTL:-90}
+      # The room projection's inbox. The topology is not declared here — the
+      # broker imports it at boot from deploy/rabbitmq/definitions.json — this
+      # only names the queue.
+      RABBITMQ_URL: ${RABBITMQ_URL:?set RABBITMQ_URL in .env}
+      CHAT_QUEUE: ${CHAT_QUEUE:-chat.trip-events}
+      CHAT_PING_INTERVAL: ${CHAT_PING_INTERVAL:-30}
+      CHAT_PONG_TIMEOUT: ${CHAT_PONG_TIMEOUT:-60}
+      CHAT_SEND_BUFFER: ${CHAT_SEND_BUFFER:-64}
+      CHAT_ALLOWED_ORIGINS: ${CHAT_ALLOWED_ORIGINS:-localhost:*,127.0.0.1:*}
+      CHAT_PORT: ${CHAT_PORT:-8003}
+      CHAT_DB_MAX_CONNS: ${CHAT_DB_MAX_CONNS:-10}
+      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+    ports:
+      # A range, not a port. The first replica gets 8003, the second 8004, and
+      # so on; a single mapping would collide the moment the service is scaled.
+      # Debugging only — client traffic goes through the gateway on 8080, which
+      # is also the only address that load-balances between the replicas.
+      - "${CHAT_PORT:-8003}-${CHAT_PORT_RANGE_END:-8013}:8003"
+    networks:
+      - togethergo

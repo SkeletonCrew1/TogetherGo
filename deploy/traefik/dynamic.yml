@@ -1,0 +1,141 @@
+# Traefik v3 dynamic configuration — the routing table.
+#
+# Watched by the file provider (see traefik.yml), so edits here take effect
+# without restarting the gateway. On Docker Desktop for macOS the inotify event
+# does not reliably cross the bind mount, so if a change here does not seem to
+# have landed, check the loaded rule at http://localhost:8081/api/http/routers
+# and `docker compose restart gateway`.
+#
+# Routing table (see CLAUDE.md):
+#
+#   /api/auth/*     -> identity      http://identity:8001   [live]
+#   /api/users/*    -> identity                             [live]
+#   /api/ratings/*  -> identity                             [live]
+#   /.well-known/*  -> identity                             [live]
+#   /api/trips/*    -> trip          http://trip:8002       [live]
+#   /api/my/*       -> trip                                 [live]
+#   /api/chat/*     -> chat          http://chat:8003       [live]
+#   /ws/chat/*      -> chat          (websocket; Traefik proxies the upgrade
+#                                     with no extra configuration)          [live]
+#
+# notification is deliberately absent: it has no public surface beyond its
+# health endpoints, and is reached only over the internal network.
+#
+# A router whose service has no running container makes the gateway report it
+# as unavailable, so routes are added as each service comes up rather than
+# all at once.
+#
+# ---------------------------------------------------------------------------
+# /internal is NOT routed here, and that is a security boundary, not an
+# oversight.
+#
+# `GET /internal/users` resolves user ids to display data for the trip and
+# chat services. No rule below matches `/internal`, so a request for it
+# through the gateway is a 404 from Traefik that never reaches the
+# application — the endpoint is unreachable from outside the Compose network,
+# not merely unauthorised. The X-Internal-Token check in the service is the
+# second line of defence behind this one, because in Compose every service
+# shares a network with every other.
+#
+# The rule is asserted in code, not just here:
+# services/identity/tests/test_gateway_routes.py parses this file and fails if
+# any router's rule would match /internal.
+# ---------------------------------------------------------------------------
+
+http:
+  routers:
+    identity:
+      # /api/ratings belongs to identity because a rating is a property of a
+      # user, not of a trip: the aggregate has to be readable from a profile
+      # without touching the trip service. `/api/users/{id}/ratings` is served
+      # by the same service and already covered by the /api/users prefix.
+      #
+      # /.well-known carries the JWKS document. Other services fetch it over
+      # the internal network at http://identity:8001 and do not need this
+      # route, but a browser SPA validating a token, and any external tool
+      # that has to check a signature, reach it through the gateway.
+      rule: >-
+        PathPrefix(`/api/auth`)
+        || PathPrefix(`/api/users`)
+        || PathPrefix(`/api/ratings`)
+        || PathPrefix(`/.well-known`)
+      entryPoints:
+        - web
+      service: identity
+
+    chat:
+      # Both prefixes on one router, because they are one service and the
+      # split is a protocol boundary rather than a routing one: /api/chat is
+      # ordinary REST, /ws/chat is the socket those REST calls hand out tickets
+      # for.
+      #
+      # Traefik v3 proxies a websocket upgrade with no configuration at all —
+      # no middleware, no annotation, no `Connection: upgrade` header to set by
+      # hand. It detects the upgrade and switches the connection to a raw
+      # bidirectional stream. What it does *not* do is keep it open forever
+      # against a backend that is not answering, which is why the service pings
+      # its own sockets rather than relying on the gateway to notice.
+      #
+      # It also does not, by default, let one live past sixty seconds: the
+      # `web` entrypoint's readTimeout is a deadline on the whole request and a
+      # handshake is a request that never ends. It is pinned to 0 in
+      # deploy/traefik/traefik.yml, and this route is the reason.
+      rule: PathPrefix(`/api/chat`) || PathPrefix(`/ws/chat`)
+      entryPoints:
+        - web
+      service: chat
+
+    trip:
+      # Both prefixes on one router, because they are one service and the split
+      # is a question of what is being addressed rather than of where it lives:
+      # /api/trips is the catalogue, addressed by trip id, and /api/my is the
+      # dashboard, addressed by the bearer token and nothing else.
+      rule: PathPrefix(`/api/trips`) || PathPrefix(`/api/my`)
+      entryPoints:
+        - web
+      service: trip
+
+  services:
+    identity:
+      loadBalancer:
+        servers:
+          - url: "http://identity:8001"
+        # Traefik's own view of whether the backend can serve traffic. It
+        # asks /readyz rather than /healthz: an instance whose database is
+        # gone is alive but must not be sent requests.
+        healthCheck:
+          path: /readyz
+          interval: "10s"
+          timeout: "3s"
+
+    chat:
+      loadBalancer:
+        # One server entry and any number of containers behind it.
+        # `docker compose up --scale chat=2` puts two containers on the
+        # `chat` DNS name, Docker's embedded resolver returns both, and Traefik
+        # dials whichever it is given — so the gateway needs no change to
+        # scale, and neither does this file.
+        #
+        # Which replica a socket lands on does not matter: the Redis fan-out is
+        # what makes them one room, so there is no sticky session here and none
+        # is needed.
+        servers:
+          - url: "http://chat:8003"
+        # /readyz, not /healthz: an instance whose Redis is gone can issue no
+        # tickets and deliver no message from another replica. It is alive and
+        # it must not be sent traffic.
+        healthCheck:
+          path: /readyz
+          interval: "10s"
+          timeout: "3s"
+
+    trip:
+      loadBalancer:
+        servers:
+          - url: "http://trip:8002"
+        # /readyz, not /healthz: an instance whose database or whose view of
+        # identity's JWKS is gone is alive but must not be sent requests.
+        healthCheck:
+          path: /readyz
+          interval: "10s"
+          timeout: "3s"

@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+
+  /* The default focus ring is invisible on the brand colour in several places;
+     these two rules make every focus-visible ring the same one. */
+  :focus-visible {
+    @apply outline-none;
+  }
+}
+
+@layer components {
+  /* Leaflet's attribution and zoom controls are absolutely positioned inside
+     the map pane and land above sticky headers and dialogs without this. The
+     map itself is z-0 (MapBase), and this keeps its children in that stack. */
+  .leaflet-container {
+    @apply z-0 font-sans;
+  }
+
+  .leaflet-pane,
+  .leaflet-top,
+  .leaflet-bottom {
+    z-index: 1 !important;
+  }
+
+  .leaflet-container .leaflet-popup-content-wrapper {
+    @apply rounded-lg shadow-lg;
+  }
+}

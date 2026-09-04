@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.local
+.vite/
+# tsc -b writes these next to the configs; they are build state, not source.
+*.tsbuildinfo

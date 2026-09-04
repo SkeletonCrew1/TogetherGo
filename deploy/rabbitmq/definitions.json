@@ -1,0 +1,265 @@
+{
+  "rabbit_version": "3.13.0",
+  "rabbitmq_version": "3.13.0",
+  "product_name": "RabbitMQ",
+  "product_version": "3.13.0",
+
+  "users": [
+    {
+      "name": "togethergo",
+      "password": "togethergo",
+      "tags": ["administrator"]
+    }
+  ],
+  "vhosts": [
+    { "name": "/" }
+  ],
+  "permissions": [
+    {
+      "user": "togethergo",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "topic_permissions": [],
+  "parameters": [],
+  "global_parameters": [],
+  "policies": [],
+
+  "exchanges": [
+    {
+      "name": "togethergo.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "togethergo.dlx",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+
+  "queues": [
+    {
+      "name": "notification.events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "togethergo.dlx",
+        "x-dead-letter-routing-key": "notification.events"
+      }
+    },
+    {
+      "name": "notification.events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "chat.trip-events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "togethergo.dlx",
+        "x-dead-letter-routing-key": "chat.trip-events"
+      }
+    },
+    {
+      "name": "chat.trip-events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "identity.trip-events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "togethergo.dlx",
+        "x-dead-letter-routing-key": "identity.trip-events"
+      }
+    },
+    {
+      "name": "identity.trip-events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "trip.user-events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "togethergo.dlx",
+        "x-dead-letter-routing-key": "trip.user-events"
+      }
+    },
+    {
+      "name": "trip.user-events.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+
+  "bindings": [
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "user.registered",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "trip.status_changed",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "trip.completed",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "trip.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "trip.invite_sent",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "notification.events",
+      "destination_type": "queue",
+      "routing_key": "join_request.*",
+      "arguments": {}
+    },
+
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "chat.trip-events",
+      "destination_type": "queue",
+      "routing_key": "trip.created",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "chat.trip-events",
+      "destination_type": "queue",
+      "routing_key": "trip.cancelled",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "chat.trip-events",
+      "destination_type": "queue",
+      "routing_key": "join_request.approved",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "chat.trip-events",
+      "destination_type": "queue",
+      "routing_key": "participant.removed",
+      "arguments": {}
+    },
+
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "identity.trip-events",
+      "destination_type": "queue",
+      "routing_key": "trip.completed",
+      "arguments": {}
+    },
+
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "trip.user-events",
+      "destination_type": "queue",
+      "routing_key": "user.profile_updated",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.events",
+      "vhost": "/",
+      "destination": "trip.user-events",
+      "destination_type": "queue",
+      "routing_key": "user.rating_updated",
+      "arguments": {}
+    },
+
+    {
+      "source": "togethergo.dlx",
+      "vhost": "/",
+      "destination": "notification.events.dlq",
+      "destination_type": "queue",
+      "routing_key": "notification.events",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.dlx",
+      "vhost": "/",
+      "destination": "chat.trip-events.dlq",
+      "destination_type": "queue",
+      "routing_key": "chat.trip-events",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.dlx",
+      "vhost": "/",
+      "destination": "identity.trip-events.dlq",
+      "destination_type": "queue",
+      "routing_key": "identity.trip-events",
+      "arguments": {}
+    },
+    {
+      "source": "togethergo.dlx",
+      "vhost": "/",
+      "destination": "trip.user-events.dlq",
+      "destination_type": "queue",
+      "routing_key": "trip.user-events",
+      "arguments": {}
+    }
+  ]
+}
