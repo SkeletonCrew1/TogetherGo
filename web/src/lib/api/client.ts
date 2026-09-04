@@ -11,8 +11,17 @@ import {
 import type { TokenPair } from '@/lib/types'
 
 /**
- * Empty in dev, so requests go through the Vite proxy and stay same-origin.
- * Set to the gateway's origin for a build served from somewhere else.
+ * Empty, so every call is a relative path against the page's own origin.
+ *
+ * The SPA and the API are served by the same Traefik gateway on
+ * http://localhost:8080, so `/api/trips` is already the right URL and there is
+ * no cross-origin request to grant. That is the fix for the CORS problem
+ * rather than a workaround for it — and same-origin is also what an httpOnly
+ * refresh cookie needs to be usable at all.
+ *
+ * Set VITE_API_BASE_URL only for a build served from somewhere the API is not.
+ * Vite inlines it at build time (see web/Dockerfile), so it is a property of
+ * the bundle, not something a running container can be repointed with.
  */
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 

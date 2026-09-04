@@ -1,0 +1,7 @@
+# Generate the real file with:
+#   terraform -chdir=terraform/bootstrap output -raw backend_config > terraform/cluster/backend.hcl
+bucket         = "togethergo-tfstate-123456789012"
+key            = "cluster/terraform.tfstate"
+region         = "eu-central-1"
+dynamodb_table = "togethergo-tf-lock"
+encrypt        = true

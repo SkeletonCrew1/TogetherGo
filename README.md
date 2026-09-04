@@ -6,8 +6,9 @@ join, the organizer approves, approved participants get a group chat, and once
 the trip completes everyone rates their co-travellers.
 
 This repository is a monorepo of four independently buildable services plus a
-React SPA. **At this stage only the local infrastructure exists** — no service
-code yet. `make up` brings up a healthy backing environment to build against.
+React SPA. The frontend runs *inside* the stack and is served by the gateway on
+the same origin as the API, so **`make up` is the only command needed to run
+the whole system** — there is no separate dev server to start.
 
 ## Prerequisites
 
@@ -31,11 +32,20 @@ in when the services themselves are built.
 make keys                 # generate the RS256 keypair into deploy/keys/
 cp .env.example .env      # local defaults, safe to use as-is
 make up                   # start everything and wait for healthy
-make ps                   # confirm
+make migrate              # apply every service's migrations
 ```
 
+Then open **http://localhost:8080**. That is the app *and* the API: the SPA is
+served by Traefik from the same origin as `/api`, so there is nothing else to
+start — no `npm install`, no `npm run dev`, no second port.
+
 `make up` returns only once every container reports healthy. First run pulls
-images and initialises Postgres, so expect a minute or two.
+images, installs the frontend's dependencies and initialises Postgres, so
+expect a few minutes.
+
+Editing anything under `web/src` reloads the open page: the source is
+bind-mounted into the container and Vite's HMR socket rides the same gateway
+the app does.
 
 Check the environment is really working:
 
@@ -67,9 +77,17 @@ also makes the next `make up` re-run the database bootstrap).
 | trip | built | 8002 | Trips, routes, participants, lifecycle |
 | chat | built | 8003+ | Group chat: WebSockets, room projection, Redis fan-out |
 | notification | built | 8004 | *not yet built*, health only |
+| web | built | *(none)* | The React SPA, served through the gateway |
 
 Client traffic goes through `http://localhost:8080`. The direct service ports
 are for debugging only.
+
+`web` is the one service with **no host port at all**, and that is deliberate
+rather than an omission. It listens on 5173 inside the container and Traefik
+dials it by name; publishing that port would give the SPA a second origin, and
+a second origin is exactly what produced this project's CORS configuration and
+the chat service's WebSocket `Origin` rejection. One origin, one class of bug
+gone.
 
 `chat` is the one service that runs more than one container, which is why it has
 no fixed host port and no `container_name`: `docker compose up --scale chat=2`
@@ -81,11 +99,12 @@ with no sticky sessions.
 
 | Target | Does |
 | --- | --- |
-| `make up` | Start the stack, wait for healthy |
+| `make up` | Start everything — infrastructure, services and the SPA — and wait for healthy |
 | `make down` | Stop and remove containers, keep volumes |
 | `make restart` | `down` then `up` |
 | `make ps` | Container status and health |
 | `make logs` | Follow all logs (`make logs SERVICE=postgres` to narrow) |
+| `make logs-web` | Follow the frontend's logs (the Vite dev server) |
 | `make clean` | Stop and **delete volumes** |
 | `make keys` | Generate the RS256 keypair into `deploy/keys/` |
 | `make psql-identity` | psql into `identity_db` as `identity_user` |
@@ -121,8 +140,8 @@ for synchronous request/response, RabbitMQ for everything asynchronous.
 
 ```
                      ┌──────────────────┐
-   client ──8080──▶  │ traefik (gateway)│
-                     └────────┬─────────┘
+   browser ─8080──▶  │ traefik (gateway)│ ──── /  (everything else) ───▶ web
+                     └────────┬─────────┘                              (SPA)
           /api/auth,users,ratings │ /api/trips,my │ /api/chat,/ws/chat
                      ┌──────────┴───┬─────────────┴──┐
                      ▼              ▼                ▼
@@ -175,10 +194,109 @@ file, so adding a route does not require restarting the gateway — though on
 Docker Desktop for macOS the inotify event does not always cross the bind
 mount, so `docker compose restart gateway` after editing is the reliable move.
 
+The table ends with a catch-all: anything that is not `/api`, `/ws` or
+`/.well-known` goes to the SPA. It carries an explicit low `priority`, so the
+API routers always win regardless of how long their rules happen to be — the
+alternative is a page that loads while every API call comes back as
+`index.html`.
+
 Routes that are *not* in that file are unreachable from outside, which is a
 security boundary and not just tidiness: `/internal/*` is absent, so a request
 to `http://localhost:8080/internal/users` is a 404 from Traefik that never
-reaches the application.
+reaches the application. The catch-all would otherwise have swallowed it, which
+is why it is written `PathPrefix(`/`) && !PathPrefix(`/internal`)` — the 404
+comes from the gateway, not from the SPA answering 200 with an HTML page.
+
+## The frontend
+
+`web/` is a React SPA, and it runs as a container in this stack like everything
+else. It used to be a Vite dev server the developer started by hand on
+`localhost:5173` while the API sat behind Traefik on `8080`, and that split is
+the direct cause of two bugs this project has already paid for: the CORS
+configuration, and the WebSocket `Origin` rejection in the chat service. Behind
+one gateway there is one origin, and neither problem exists to be configured
+around.
+
+What that buys, concretely:
+
+- The API client's base URL is the empty string. `fetch('/api/trips')` is
+  already correct, so there is no cross-origin request to grant.
+- The chat socket derives its host from `window.location` and its scheme from
+  `location.protocol`, so it follows the page.
+- `CHAT_ALLOWED_ORIGINS` is `localhost:8080` — one host, the real one, rather
+  than a wildcard hiding the fact that the frontend moved.
+- Hot reload still works. `./web` is bind-mounted into the container and the
+  HMR WebSocket is proxied by the same gateway as everything else.
+
+Two images:
+
+| File | For | Notes |
+| --- | --- | --- |
+| `web/Dockerfile.dev` | development | The Vite dev server. What Compose runs. |
+| `web/Dockerfile` | production | Multi-stage: `npm run build`, then nginx over the built `dist/`. Not used by Compose. |
+
+The production image takes `VITE_API_BASE_URL` and `VITE_WS_BASE_URL` as
+**build arguments**, not runtime environment variables, because Vite inlines
+them into the bundle at build time. An image built with one value cannot be
+repointed by setting an env var on the container — the value is in the
+JavaScript the browser downloads. Repointing means rebuilding:
+
+```bash
+docker build -f web/Dockerfile --build-arg VITE_API_BASE_URL=https://api.example.com web/
+```
+
+Both default to empty, which is what makes the bundle same-origin — the right
+default for the deployment this project has.
+
+## Troubleshooting
+
+**The page loads, but every API call 404s (or returns HTML).** A Traefik
+routing problem, and almost always priority. The SPA's router matches
+`PathPrefix(`/`)`, so it matches `/api/trips` too; only its explicit low
+`priority` in `deploy/traefik/dynamic.yml` keeps the API routers ahead of it.
+Check which router actually won:
+
+```bash
+curl -s http://localhost:8080/api/trips | head -c 100   # JSON error envelope, not <!doctype html>
+open http://localhost:8081/api/http/routers             # the loaded table, with priorities
+```
+
+If the table on the dashboard does not match the file, the gateway has not
+re-read it — the file provider watches a bind mount and Docker Desktop for
+macOS does not reliably deliver that inotify event. `docker compose restart
+gateway`.
+
+**The page loads, but edits do not hot reload.** The container is not seeing
+the writes. Filesystem events do not propagate reliably through Docker
+Desktop's virtualisation layer on macOS, which is why `server.watch.usePolling`
+is `true` in `web/vite.config.ts`; if it has been turned off, this is the
+symptom. Watch for the update as you save:
+
+```bash
+make logs-web    # a healthy save prints an hmr update line
+```
+
+A dead HMR socket in the browser console is a different fault with the same
+symptom: the page is served from `8080` but the HMR client defaults to its own
+port, so without `server.hmr.clientPort: 8080` it dials `ws://localhost:5173`
+and fails silently. The initial page load works either way, which is what makes
+this one confusing.
+
+**The chat WebSocket handshake returns 403.** The `Origin` allowlist, not auth
+— and it reads exactly like an auth failure, which has already cost time here
+once. The browser now arrives from `localhost:8080`; `CHAT_ALLOWED_ORIGINS`
+must say so.
+
+```bash
+docker compose exec chat printenv CHAT_ALLOWED_ORIGINS   # expect localhost:8080,127.0.0.1:8080
+docker compose logs chat | grep '"status":403'
+```
+
+The tell is the status: a rejected *origin* is a 403 on the HTTP handshake, so
+the socket never opens. A rejected *ticket* is a 101 followed by a close with
+code 4401 — the connection opens and then closes, deliberately, so the browser
+can tell the two apart. If you see 101 and then 4401, the origin is fine and
+the problem really is the ticket.
 
 ## Layout
 
@@ -201,6 +319,9 @@ reaches the application.
 │   ├── chat/                Go 1.23 — websockets, rooms, fan-out
 │   └── notification/        Python 3.12
 └── web/                     React SPA
+    ├── Dockerfile.dev       Vite dev server — what Compose runs
+    ├── Dockerfile           multi-stage production build, nginx in front
+    └── nginx.conf           SPA fallback, so deep links survive a refresh
 ```
 
 Each service is independently buildable and will carry its own Dockerfile,

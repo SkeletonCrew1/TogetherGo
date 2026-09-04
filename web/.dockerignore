@@ -1,0 +1,26 @@
+# Kept out of the build context for both web images.
+
+# Installed inside the image by `npm ci`. A host tree copied in would be built
+# for the host's platform and libc, which on macOS means native binaries that
+# cannot run in an Alpine container — and it is the largest thing in this
+# directory by far, so sending it also makes every build slower.
+node_modules/
+
+# The previous local `npm run build`. The production image builds its own; a
+# stale one copied in would be silently served instead.
+dist/
+build/
+
+# Local overrides, and never in an image: Vite inlines VITE_* values into the
+# bundle at build time, so a developer's .env.local leaking into a production
+# build bakes their machine's URLs into it.
+.env
+.env.local
+.env.*.local
+
+# Build state and noise.
+*.tsbuildinfo
+.vite/
+*.log
+npm-debug.log*
+.DS_Store

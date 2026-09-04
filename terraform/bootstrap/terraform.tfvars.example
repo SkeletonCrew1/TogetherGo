@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region      = "eu-central-1"
+environment = "dev"
+
+# Required. Only this repository can assume the CI role.
+github_repository = "your-github-org/TogetherGo"
+
+# Optional: restrict CI to a single branch instead of any ref.
+# github_subject_claims = ["repo:your-github-org/TogetherGo:ref:refs/heads/main"]
+
+# Set to false and supply the ARN if the account already has a GitHub OIDC
+# provider; AWS allows only one per issuer URL.
+# create_github_oidc_provider       = false
+# existing_github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+
+# Must match cluster_name in terraform/cluster.
+cluster_name = "togethergo-dev"

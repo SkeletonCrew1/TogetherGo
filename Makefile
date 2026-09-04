@@ -17,7 +17,7 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: help up down logs ps restart rebuild clean keys \
+.PHONY: help up down logs logs-web ps restart rebuild clean keys \
         psql-identity psql-trip psql-chat psql-notification \
         rabbitmq-ui rabbitmq-topology rabbitmq-import mailhog-ui check-env \
         migrate migrate-identity migrate-trip migrate-trip-down \
@@ -43,9 +43,17 @@ check-env:
 		sys.exit(0) if u and u[0].get('password')=='$(RABBITMQ_PASSWORD)' else \
 		sys.exit('error: RABBITMQ_USER/RABBITMQ_PASSWORD in .env do not match the user in $(DEFINITIONS)')"
 
-## up: start the infrastructure and wait for every container to be healthy
+## up: start the whole system — infrastructure, services and the SPA — and wait for healthy
 up: check-env
+	@# Everything, including the frontend. There is no second command: the web
+	@# container runs the Vite dev server and Traefik serves it on the same
+	@# origin as the API, so `npm run dev` on the host is not part of this
+	@# workflow any more and starting one would put the two-origin problem back.
 	$(COMPOSE) up -d --wait
+	@echo
+	@echo "  app + API:  http://localhost:$(or $(GATEWAY_PORT),8080)"
+	@echo "  gateway:    http://localhost:$(or $(GATEWAY_DASHBOARD_PORT),8081)/dashboard/"
+	@echo
 
 ## down: stop and remove containers, keeping volumes
 down:
@@ -74,6 +82,15 @@ ps:
 ## logs: follow logs from every container (make logs SERVICE=postgres to narrow)
 logs:
 	$(COMPOSE) logs -f --tail=100 $(SERVICE)
+
+## logs-web: follow the frontend's logs (the Vite dev server)
+logs-web:
+	@# Where a hot-reload problem shows up first. A healthy dev server prints
+	@# "ready in Nms" once and then a line per HMR update as files change; if
+	@# editing a component produces nothing here, the container is not seeing
+	@# the write and the answer is server.watch.usePolling in web/vite.config.ts
+	@# (see the troubleshooting section in README.md).
+	$(COMPOSE) logs -f --tail=100 web
 
 ## clean: stop everything and delete volumes (destroys all local data)
 clean:

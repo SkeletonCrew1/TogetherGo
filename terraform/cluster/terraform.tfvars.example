@@ -1,0 +1,26 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region      = "eu-central-1"
+environment = "dev"
+
+cluster_name       = "togethergo-dev"
+kubernetes_version = "1.31"
+
+# OPERATOR: replace with your own egress CIDR once the cluster is reachable.
+# Leaving this at 0.0.0.0/0 exposes the Kubernetes API to the whole internet;
+# it is still authenticated, but there is no reason to advertise it.
+cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
+
+# t4g is Graviton. Build service images with --platform linux/arm64, or switch
+# to ["t3.medium"] with node_ami_type = "AL2023_x86_64_STANDARD".
+node_instance_types     = ["t4g.medium"]
+node_ami_type           = "AL2023_ARM_64_STANDARD"
+node_group_min_size     = 2
+node_group_max_size     = 4
+node_group_desired_size = 2
+
+# TLS is off by default so the module applies for someone without a domain.
+# create_certificate        = true
+# domain_name               = "togethergo.example.com"
+# subject_alternative_names = ["*.togethergo.example.com"]
+# hosted_zone_id            = "Z0123456789ABCDEFGHIJ"

@@ -1,0 +1,44 @@
+# TogetherGo web — development image.
+#
+# The Vite dev server, containerised so that `docker compose up` is the only
+# command needed to run the whole system. It is served to the browser through
+# Traefik on http://localhost:8080, the same origin as the API — which is the
+# point of putting it here at all. The frontend running on its own port was the
+# direct cause of both the CORS configuration and the websocket Origin
+# rejection this project has already paid for once each.
+#
+# This image builds the dependency tree and nothing else. The source is
+# bind-mounted over /app by docker-compose.yml, with an anonymous volume on
+# /app/node_modules so the tree installed here survives that mount rather than
+# being shadowed by a host node_modules built for a different platform.
+#
+# For the production image — a built bundle served by nginx — see ./Dockerfile.
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Only the manifests, so a source edit does not invalidate the install layer.
+# `npm ci` and not `npm install`: it installs exactly what package-lock.json
+# pins and fails if the two have drifted, which is what makes an image
+# reproducible.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Present in the image so that a `docker run` without the compose bind mount
+# still starts something. Compose mounts ./web over this.
+COPY . .
+
+EXPOSE 5173
+
+# --host 0.0.0.0 is not optional in a container. Vite's default binds the dev
+# server to localhost, which inside the container means the container's own
+# loopback: Traefik dials `http://web:5173` from another container, gets
+# connection refused, and the page is a 502 that looks like the image failed to
+# build. The port and the HMR client port are pinned in vite.config.ts.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# Asks the dev server for the app shell over the same interface Traefik uses,
+# so `make up --wait` does not report the stack ready while the gateway would
+# still answer 502. Vite takes a few seconds to do its first dependency scan.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
+    CMD wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1

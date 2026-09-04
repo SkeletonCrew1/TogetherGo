@@ -225,8 +225,11 @@ func Load() (*Config, error) {
 	}
 	cfg.PresenceTTL = time.Duration(presenceTTL) * time.Second
 
-	// Hosts, not URLs: `localhost:*` matches the gateway on 8080 and the Vite
-	// dev server on 5173 without naming either.
+	// Hosts, not URLs. The default is a permissive `localhost:*` because a
+	// `go run` with no environment at all should still accept a browser; the
+	// deployed value is narrower and is set in docker-compose.yml, where the
+	// SPA and the API share the gateway's origin and `localhost:8080` is the
+	// only host a real handshake can arrive from.
 	cfg.AllowedOrigins = splitList(stringFromEnv("CHAT_ALLOWED_ORIGINS", "localhost:*,127.0.0.1:*"))
 
 	shutdown, err := intFromEnv("SHUTDOWN_TIMEOUT", 15)

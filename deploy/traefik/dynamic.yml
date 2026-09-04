@@ -17,6 +17,7 @@
 #   /api/chat/*     -> chat          http://chat:8003       [live]
 #   /ws/chat/*      -> chat          (websocket; Traefik proxies the upgrade
 #                                     with no extra configuration)          [live]
+#   everything else -> web           http://web:5173  (the SPA)          [live]
 #
 # notification is deliberately absent: it has no public surface beyond its
 # health endpoints, and is reached only over the internal network.
@@ -36,6 +37,12 @@
 # not merely unauthorised. The X-Internal-Token check in the service is the
 # second line of defence behind this one, because in Compose every service
 # shares a network with every other.
+#
+# The `web` router below is a catch-all, and it carries an explicit
+# `!PathPrefix(`/internal`)` for exactly this reason. Without it the catch-all
+# would match, and while it would forward the request to the SPA rather than to
+# identity, "404 from Traefik" would have quietly become "200 with an HTML
+# page" — a weaker property, and one nobody would notice had changed.
 #
 # The rule is asserted in code, not just here:
 # services/identity/tests/test_gateway_routes.py parses this file and fails if
@@ -95,6 +102,34 @@ http:
         - web
       service: trip
 
+    web:
+      # The SPA, and the reason it is here rather than on its own port: served
+      # from this entrypoint it is same-origin with the API, which is what
+      # removes the CORS grant and the websocket Origin rejection that a
+      # separate localhost:5173 made necessary. In development this is the Vite
+      # dev server; the HMR websocket rides the same catch-all, which Traefik
+      # upgrades exactly as it does /ws/chat.
+      #
+      # `!PathPrefix(`/internal`)` is load-bearing, not tidiness. A bare
+      # catch-all would match /internal/users, and while it would forward it to
+      # the SPA rather than to identity, the acceptance criterion for that
+      # boundary is a 404 *from Traefik* — a request that never reaches an
+      # application at all. Excluding it here keeps that literally true, and
+      # keeps tests/test_gateway_routes.py able to assert it.
+      rule: PathPrefix(`/`) && !PathPrefix(`/internal`)
+      entryPoints:
+        - web
+      service: web
+      # Explicit, and low. Traefik orders routers by priority and falls back to
+      # the rule's *length* when none is given — which would leave "does the API
+      # win over the catch-all" depending on how many characters a rule happens
+      # to be, and quietly flip the day a prefix is renamed. 1 is the lowest
+      # Traefik accepts, and every API router above keeps its length-derived
+      # priority, all of which are far larger. The failure this prevents is the
+      # confusing one: the page loads, and every API call comes back as the
+      # SPA's index.html.
+      priority: 1
+
   services:
     identity:
       loadBalancer:
@@ -139,3 +174,17 @@ http:
           path: /readyz
           interval: "10s"
           timeout: "3s"
+
+    web:
+      loadBalancer:
+        # 5173 is the Vite dev server's port *inside* the container. It is not
+        # published to the host and must not be: the whole point of this router
+        # is that there is exactly one origin, http://localhost:8080, and a
+        # second way in would bring back the two-origin problem it removes.
+        servers:
+          - url: "http://web:5173"
+        # No healthCheck here, unlike the three services above. Traefik's
+        # active health check is an HTTP GET, and there is no path on a Vite
+        # dev server that answers one without also being a route of the
+        # application. The container has its own HEALTHCHECK
+        # (web/Dockerfile.dev), which is what `make up --wait` waits on.

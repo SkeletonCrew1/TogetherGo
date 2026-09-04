@@ -5,19 +5,58 @@ Router, Tailwind, react-hook-form + zod for forms, react-leaflet over
 OpenStreetMap tiles for maps. No component library — the handful of primitives
 this needs are in `src/components/ui/`.
 
+## Running it
+
+From the repository root:
+
 ```bash
-cp .env.example .env
-npm install
-npm run dev        # http://localhost:5173
-npm test           # 21 tests
-npm run build      # tsc -b && vite build
+make up            # the whole system, this app included
+make migrate
 ```
 
-`npm run dev` proxies `/api`, `/.well-known` and `/ws` to the Traefik gateway on
-`localhost:8080`, so the SPA is same-origin with the API in development. That is
-not just convenience: an httpOnly refresh cookie is only usable same-origin, so
-the dev setup matches the shape the auth design is heading for. Bring the
-backend up first with `make up && make migrate` from the repository root.
+Then open **http://localhost:8080**. There is no separate frontend command: the
+Vite dev server runs as the `web` container and Traefik serves it on the same
+origin as the API. `./web` is bind-mounted into that container, so editing a
+file here reloads the open page.
+
+That same-origin arrangement is the point rather than a convenience. The SPA
+used to run on `localhost:5173` while the API sat on `8080`, and the two bugs
+that cost this project time — the CORS configuration and the chat service's
+WebSocket `Origin` rejection — were both that split showing up in a different
+place. One origin, and neither exists to be configured around. It is also what
+an httpOnly refresh cookie needs, which is the shape the auth design is heading
+for.
+
+Everything else runs inside the container:
+
+```bash
+docker compose exec web npm test          # 34 tests
+docker compose exec web npx tsc -b        # typecheck
+make logs-web                             # the dev server's output
+```
+
+`npm install && npm run dev` on the host still works and is occasionally useful,
+but it serves the app on `localhost:5173` with no gateway in front, which is the
+setup this arrangement replaced: relative `/api` calls have nothing to reach and
+the chat socket's origin is not in the allowlist. Use `make up`.
+
+## Building for production
+
+`Dockerfile` is a two-stage build — `npm run build`, then nginx over the
+result, with `try_files $uri $uri/ /index.html` so a deep link like `/my-trips`
+survives a refresh. It is not what Compose runs; `Dockerfile.dev` is.
+
+The two URLs are **build arguments**, because Vite inlines `VITE_*` values into
+the bundle at build time. An image built with one baked in cannot be repointed
+by setting an environment variable on the container — the value is in the
+JavaScript the browser downloads:
+
+```bash
+docker build -f Dockerfile --build-arg VITE_API_BASE_URL=https://api.example.com .
+```
+
+Both default to empty, which makes the bundle same-origin: the API client falls
+back to relative paths and the socket derives its host from `window.location`.
 
 ## Layout
 
@@ -136,6 +175,11 @@ infinite loop with a network call in it. Both are covered in
 mount/unmount churn (StrictMode double-invokes effects in dev) cannot turn into
 a reconnect storm.
 
+- The URL is derived from the page, never configured: `window.location.host`
+  for the host and `location.protocol` for the `ws:`/`wss:` scheme. The socket
+  is same-origin with the page for the same reason the API client is, and a
+  build served over TLS opens `wss:` without anyone remembering to change a
+  setting. `VITE_WS_BASE_URL` overrides it and is empty everywhere here.
 - A fresh ticket is requested before **every** connect, including every
   reconnect. Tickets are single-use, so replaying the last one is a guaranteed
   401 and a room that never comes back.

@@ -1,5 +1,4 @@
 import * as chatApi from '@/lib/api/chat'
-import { API_BASE } from '@/lib/api/client'
 import type { ChatFrame, OutboundMessageFrame } from '@/lib/types'
 
 /**
@@ -46,10 +45,36 @@ function backoffDelay(attempt: number): number {
   return Math.random() * exponential
 }
 
+/**
+ * An explicit websocket origin, for a build served from somewhere other than
+ * the gateway. Empty in every deployment this project has: the SPA is served
+ * by Traefik on the same origin as `/ws/chat`, so the socket derives its host
+ * from the page and nothing has to be configured.
+ */
+const WS_BASE = import.meta.env.VITE_WS_BASE_URL ?? ''
+
+/**
+ * The page's own origin, as a websocket scheme.
+ *
+ * `window.location.host` and not a baked-in hostname: the page is served
+ * through the gateway, so whatever host the browser used to reach it is the
+ * host that also routes /ws/chat. The scheme has to be translated because
+ * `new WebSocket('http://...')` is a SyntaxError — and it is read from
+ * `location.protocol` rather than assumed, so a page served over TLS opens a
+ * `wss:` socket instead of a mixed-content one the browser would block.
+ */
+function sameOriginWsBase(): string {
+  const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${scheme}//${window.location.host}`
+}
+
 function socketUrl(tripId: string, ticket: string): string {
-  const base = API_BASE || window.location.origin
-  const url = new URL(`/ws/chat/${tripId}`, base)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = new URL(`/ws/chat/${tripId}`, WS_BASE || sameOriginWsBase())
+  // A configured VITE_WS_BASE_URL is just as likely to be written with an http
+  // scheme as a ws one; normalise rather than hand the constructor something
+  // it will throw on.
+  if (url.protocol === 'http:') url.protocol = 'ws:'
+  else if (url.protocol === 'https:') url.protocol = 'wss:'
   url.searchParams.set('ticket', ticket)
   return url.toString()
 }

@@ -308,7 +308,17 @@ services:
       CHAT_PING_INTERVAL: ${CHAT_PING_INTERVAL:-30}
       CHAT_PONG_TIMEOUT: ${CHAT_PONG_TIMEOUT:-60}
       CHAT_SEND_BUFFER: ${CHAT_SEND_BUFFER:-64}
-      CHAT_ALLOWED_ORIGINS: ${CHAT_ALLOWED_ORIGINS:-localhost:*,127.0.0.1:*}
+      # The browser now arrives from the gateway on 8080, because the SPA is
+      # served from the same origin as the API (see the `web` service below).
+      # It is never localhost:5173 any more — that port is not published.
+      #
+      # Named ports rather than the `localhost:*` wildcard this used to carry:
+      # the wildcard covered both the gateway and the old Vite dev server, and
+      # keeping it would mean the one configuration line that has to change
+      # when the frontend moves origin never does. Getting this wrong is a 403
+      # on the handshake that reads as an auth failure, which has already cost
+      # this project time once.
+      CHAT_ALLOWED_ORIGINS: ${CHAT_ALLOWED_ORIGINS:-localhost:8080,127.0.0.1:8080}
       CHAT_PORT: ${CHAT_PORT:-8003}
       CHAT_DB_MAX_CONNS: ${CHAT_DB_MAX_CONNS:-10}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-15}
@@ -320,5 +330,52 @@ services:
       # Debugging only — client traffic goes through the gateway on 8080, which
       # is also the only address that load-balances between the replicas.
       - "${CHAT_PORT:-8003}-${CHAT_PORT_RANGE_END:-8013}:8003"
+    networks:
+      - togethergo
+
+  web:
+    # The SPA, in the stack rather than beside it. It used to be a Vite dev
+    # server the developer started by hand on localhost:5173 while the API sat
+    # behind Traefik on 8080, and that split is the direct cause of two bugs
+    # this project has already paid for: the CORS configuration, and the
+    # websocket Origin rejection in the chat service. Served through the
+    # gateway there is one origin, so neither problem exists to be configured
+    # around.
+    build:
+      context: ./web
+      # The development image: Vite with hot reload. web/Dockerfile is the
+      # production one — a bundle built with nginx in front — and is not used
+      # by Compose. It bakes VITE_* values in at build time, so it cannot be
+      # repointed by an environment variable here; see the comment in it.
+      dockerfile: Dockerfile.dev
+    container_name: togethergo-web
+    restart: unless-stopped
+    depends_on:
+      # Not because the dev server needs any of them to start — it serves the
+      # login page against a stack that is entirely down — but so that
+      # `make up --wait` does not report the whole system ready while the first
+      # click would fail. Same reasoning as the waits between the services
+      # themselves.
+      identity:
+        condition: service_healthy
+      trip:
+        condition: service_healthy
+      chat:
+        condition: service_healthy
+    volumes:
+      # Hot reload. The source is the host's, so an edit in an editor is an
+      # edit inside the container; vite.config.ts polls it, because Docker
+      # Desktop on macOS does not forward inotify events across this mount.
+      - ./web:/app
+      # An anonymous volume, and the reason the bind mount above works at all.
+      # Without it ./web/node_modules — or its absence — would shadow the tree
+      # `npm ci` installed in the image, which on macOS means either no modules
+      # at all or native binaries built for darwin/arm64 being loaded by an
+      # Alpine container.
+      - /app/node_modules
+    # No `ports`. Deliberately: the only way in is http://localhost:8080
+    # through Traefik, which is what keeps the SPA same-origin with the API.
+    # Publishing 5173 would put the old two-origin setup back one browser tab
+    # at a time.
     networks:
       - togethergo

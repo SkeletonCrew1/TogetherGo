@@ -1,0 +1,135 @@
+# --- Environment ---------------------------------------------------------
+# `.env.*` covers .env.local, .env.production and friends; the .example files
+# are the ones that get committed, and they are the documentation for every
+# variable the stack needs.
+.env
+.env.*
+!.env.example
+
+# --- Secrets -------------------------------------------------------------
+# The RS256 keypair the identity service signs with. `make keys` writes it,
+# and it never leaves the machine that generated it.
+deploy/keys/*
+!deploy/keys/.gitkeep
+
+# Belt and braces: any private key or certificate, wherever it turns up. The
+# keys above are the only ones this project has today, but a stray one written
+# into a service directory during debugging is exactly the file that gets
+# committed by a hurried `git add -A`.
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.der
+
+# --- Docker --------------------------------------------------------------
+# A local override of the compose file — different ports, an extra mount, a
+# service pointed at something on the host. It is by definition one
+# developer's, and committing it changes `make up` for everybody.
+docker-compose.override.yml
+compose.override.yml
+
+# --- Go (services/trip, services/chat) -----------------------------------
+# Compiled binaries: `go build` drops them next to the package, and our
+# server binaries are named after their cmd directory.
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+bin/
+services/*/server
+services/*/cmd/server/server
+vendor/
+go.work
+go.work.sum
+# Profiles from `go test -cpuprofile` / -memprofile.
+*.prof
+
+# --- Python (services/identity, services/notification) -------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.eggs/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.dmypy.json
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# --- Node / web ----------------------------------------------------------
+node_modules/
+.npm/
+.pnpm-store/
+web/dist/
+web/build/
+# Vite's dependency pre-bundle and the dev server's cache.
+.vite/
+# `tsc -b` writes these next to the tsconfigs; they are build state, not source.
+*.tsbuildinfo
+.eslintcache
+coverage/
+*.tgz
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Editors / OS --------------------------------------------------------
+.DS_Store
+._*
+.AppleDouble
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code: the shared configuration is committed, this file is not — it is
+# one developer's local permissions and overrides.
+.claude/settings.local.json
+
+# --- Terraform (terraform/) ----------------------------------------------
+# Provider/module caches and the local state the bootstrap module starts with
+# before it is migrated to S3.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Variable and backend files hold account ids and CIDRs; the .example files are
+# the ones that get committed. Every *.tfvars, not just terraform.tfvars — a
+# per-environment prod.tfvars holds the same kind of thing and would otherwise
+# slip through.
+*.tfvars
+*.tfvars.json
+terraform/**/backend.hcl
+!*.tfvars.example
+!terraform/**/*.example
+
+# Plan files can contain resolved secret values.
+*.tfplan
+
+# Note: .terraform.lock.hcl is deliberately NOT ignored. It pins provider
+# versions and belongs in the repository, the same way package-lock.json and
+# uv.lock do.
