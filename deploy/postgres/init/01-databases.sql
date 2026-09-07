@@ -28,6 +28,15 @@ CREATE ROLE trip_user         LOGIN PASSWORD :'trip_password';
 CREATE ROLE chat_user         LOGIN PASSWORD :'chat_password';
 CREATE ROLE notification_user LOGIN PASSWORD :'notification_password';
 
+-- An AWS RDS master user has CREATEROLE but is not a true PostgreSQL
+-- superuser. PostgreSQL therefore requires it to be a member of a role before
+-- it can create a database owned by that role. This is harmless for the local
+-- container superuser and makes the same bootstrap usable on RDS.
+SELECT format('GRANT identity_user TO %I', current_user) \gexec
+SELECT format('GRANT trip_user TO %I', current_user) \gexec
+SELECT format('GRANT chat_user TO %I', current_user) \gexec
+SELECT format('GRANT notification_user TO %I', current_user) \gexec
+
 -- ---------------------------------------------------------------------------
 -- Databases
 -- ---------------------------------------------------------------------------
