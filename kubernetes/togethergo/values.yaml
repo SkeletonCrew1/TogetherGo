@@ -1,0 +1,112 @@
+namespace:
+  create: true
+  name: togethergo
+
+consul:
+  enabled: true
+
+# Prefer an externally managed Secret in production. It must contain the five
+# keys shown under values below. See kubernetes/README.md.
+secrets:
+  existingSecret: togethergo-runtime
+  jwtPrivateKeySecret: togethergo-jwt-private-key
+  values:
+    IDENTITY_DATABASE_URL: ""
+    TRIP_DATABASE_URL: ""
+    CHAT_DATABASE_URL: ""
+    RABBITMQ_URL: ""
+    INTERNAL_API_TOKEN: ""
+
+config:
+  environment: production
+  logLevel: info
+  redisUrl: redis://redis.example.internal:6379/0
+  rabbitmqExchange: togethergo.events
+  jwksCacheTtl: "600"
+  accessTokenTtl: "900"
+  refreshTokenTtl: "2592000"
+  jwtKeyId: prod-key-1
+  ratingSweepInterval: "86400"
+  identityTimeoutMs: "2000"
+  userCacheTtl: "60"
+  tripOutboxPollMs: "500"
+  outboxRetentionDays: "7"
+  tripSchedulerInterval: "60"
+  tripSchedulerDebugTick: "false"
+  tripDbMaxConns: "10"
+  chatTicketTtl: "30"
+  chatRateLimit: "20"
+  chatRateWindow: "10"
+  chatPresenceTtl: "90"
+  chatPingInterval: "30"
+  chatPongTimeout: "60"
+  chatSendBuffer: "64"
+  chatAllowedOrigins: togethergo.example.com
+  chatDbMaxConns: "10"
+  shutdownTimeout: "15"
+
+migrations:
+  enabled: true
+
+services:
+  identity:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: REPLACE_WITH_ECR_REGISTRY/identity
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8001
+    livenessPath: /healthz
+    readinessPath: /readyz
+    excludeOutboundPorts: "5432,5672,6379"
+    autoscaling: {enabled: true, minReplicas: 1, maxReplicas: 3, targetCPUUtilizationPercentage: 70}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  trip:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: REPLACE_WITH_ECR_REGISTRY/trip
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8002
+    livenessPath: /healthz
+    readinessPath: /readyz
+    excludeOutboundPorts: "5432,5672,6379"
+    autoscaling: {enabled: true, minReplicas: 1, maxReplicas: 3, targetCPUUtilizationPercentage: 70}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  chat:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: REPLACE_WITH_ECR_REGISTRY/chat
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 8003
+    livenessPath: /healthz
+    readinessPath: /readyz
+    excludeOutboundPorts: "5432,5672,6379"
+    autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 5, targetCPUUtilizationPercentage: 70}
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  web:
+    enabled: true
+    replicaCount: 2
+    image:
+      repository: REPLACE_WITH_ECR_REGISTRY/web
+      tag: latest
+      pullPolicy: IfNotPresent
+    port: 80
+    livenessPath: /
+    readinessPath: /
+    excludeOutboundPorts: ""
+    autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 4, targetCPUUtilizationPercentage: 70}
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 250m, memory: 256Mi}
+

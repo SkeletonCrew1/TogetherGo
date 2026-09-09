@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "togethergo.labels" . | nindent 4 }}
+data:
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  RABBITMQ_EXCHANGE: {{ .Values.config.rabbitmqExchange | quote }}
+  JWKS_URL: "http://identity:8001/.well-known/jwks.json"
+  IDENTITY_INTERNAL_URL: "http://identity:8001"
+  REDIS_URL: {{ .Values.config.redisUrl | quote }}
+  JWKS_CACHE_TTL: {{ .Values.config.jwksCacheTtl | quote }}
+  ACCESS_TOKEN_TTL: {{ .Values.config.accessTokenTtl | quote }}
+  REFRESH_TOKEN_TTL: {{ .Values.config.refreshTokenTtl | quote }}
+  JWT_ALGORITHM: "RS256"
+  JWT_KEY_ID: {{ .Values.config.jwtKeyId | quote }}
+  TRIP_EVENTS_QUEUE: "identity.trip-events"
+  TRIP_EVENTS_CONSUMER_ENABLED: "true"
+  RATING_SWEEP_INTERVAL: {{ .Values.config.ratingSweepInterval | quote }}
+  IDENTITY_TIMEOUT_MS: {{ .Values.config.identityTimeoutMs | quote }}
+  USER_CACHE_TTL: {{ .Values.config.userCacheTtl | quote }}
+  TRIP_OUTBOX_POLL_MS: {{ .Values.config.tripOutboxPollMs | quote }}
+  OUTBOX_RETENTION_DAYS: {{ .Values.config.outboxRetentionDays | quote }}
+  TRIP_SCHEDULER_INTERVAL: {{ .Values.config.tripSchedulerInterval | quote }}
+  TRIP_SCHEDULER_DEBUG_TICK: {{ .Values.config.tripSchedulerDebugTick | quote }}
+  TRIP_DB_MAX_CONNS: {{ .Values.config.tripDbMaxConns | quote }}
+  CHAT_QUEUE: "chat.trip-events"
+  CHAT_TICKET_TTL: {{ .Values.config.chatTicketTtl | quote }}
+  CHAT_RATE_LIMIT: {{ .Values.config.chatRateLimit | quote }}
+  CHAT_RATE_WINDOW: {{ .Values.config.chatRateWindow | quote }}
+  CHAT_PRESENCE_TTL: {{ .Values.config.chatPresenceTtl | quote }}
+  CHAT_PING_INTERVAL: {{ .Values.config.chatPingInterval | quote }}
+  CHAT_PONG_TIMEOUT: {{ .Values.config.chatPongTimeout | quote }}
+  CHAT_SEND_BUFFER: {{ .Values.config.chatSendBuffer | quote }}
+  CHAT_ALLOWED_ORIGINS: {{ .Values.config.chatAllowedOrigins | quote }}
+  CHAT_DB_MAX_CONNS: {{ .Values.config.chatDbMaxConns | quote }}
+  SHUTDOWN_TIMEOUT: {{ .Values.config.shutdownTimeout | quote }}
+

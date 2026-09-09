@@ -1,0 +1,133 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace.name }}
+  labels:
+    {{- include "togethergo.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  replicas: {{ $service.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/part-of: togethergo
+      {{- if $.Values.consul.enabled }}
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/connect-service: {{ $name | quote }}
+        {{- if $service.excludeOutboundPorts }}
+        consul.hashicorp.com/transparent-proxy-exclude-outbound-ports: {{ $service.excludeOutboundPorts | quote }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: {{ if eq $name "web" }}101{{ else }}1001{{ end }}
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $name }}
+          image: "{{ $service.image.repository }}:{{ $service.image.tag }}"
+          imagePullPolicy: {{ $service.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+          {{- if ne $name "web" }}
+          envFrom:
+            - configMapRef:
+                name: {{ $.Release.Name }}-config
+          env:
+            - name: {{ upper $name }}_PORT
+              value: {{ $service.port | quote }}
+            - name: {{ upper $name }}_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "togethergo.secretName" $ }}
+                  key: {{ upper $name }}_DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "togethergo.secretName" $ }}
+                  key: RABBITMQ_URL
+            {{- if eq $name "identity" }}
+            - name: JWT_PRIVATE_KEY_PATH
+              value: /run/keys/jwt_private.pem
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "togethergo.secretName" $ }}
+                  key: INTERNAL_API_TOKEN
+            {{- else if eq $name "trip" }}
+            - name: INTERNAL_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "togethergo.secretName" $ }}
+                  key: INTERNAL_API_TOKEN
+            {{- end }}
+          {{- end }}
+          securityContext:
+            runAsUser: {{ if eq $name "web" }}101{{ else }}1001{{ end }}
+            runAsGroup: {{ if eq $name "web" }}101{{ else }}1001{{ end }}
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: {{ $service.livenessPath }}
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: {{ $service.readinessPath }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml $service.resources | nindent 12 }}
+          {{- if eq $name "identity" }}
+          volumeMounts:
+            - name: jwt-private-key
+              mountPath: /run/keys
+              readOnly: true
+          {{- else if eq $name "web" }}
+          volumeMounts:
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /var/run}
+            - {name: tmp, mountPath: /tmp}
+          {{- end }}
+      {{- if eq $name "identity" }}
+      volumes:
+        - name: jwt-private-key
+          secret:
+            secretName: {{ $.Values.secrets.jwtPrivateKeySecret }}
+            items:
+              - key: jwt_private.pem
+                path: jwt_private.pem
+                mode: 0440
+      {{- end }}
+      {{- if eq $name "web" }}
+      volumes:
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+      {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,19 @@
+# Copy to values.local.yaml (gitignored) and replace every placeholder.
+config:
+  redisUrl: redis://REDIS_HOST:6379/0
+  chatAllowedOrigins: togethergo.example.com
+
+secrets:
+  existingSecret: togethergo-runtime
+  jwtPrivateKeySecret: togethergo-jwt-private-key
+
+services:
+  identity:
+    image: {repository: 984546305184.dkr.ecr.eu-north-1.amazonaws.com/identity, tag: IMAGE_TAG, pullPolicy: IfNotPresent}
+  trip:
+    image: {repository: 984546305184.dkr.ecr.eu-north-1.amazonaws.com/trip, tag: IMAGE_TAG, pullPolicy: IfNotPresent}
+  chat:
+    image: {repository: 984546305184.dkr.ecr.eu-north-1.amazonaws.com/chat, tag: IMAGE_TAG, pullPolicy: IfNotPresent}
+  web:
+    image: {repository: 984546305184.dkr.ecr.eu-north-1.amazonaws.com/web, tag: IMAGE_TAG, pullPolicy: IfNotPresent}
+

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: togethergo
+description: TogetherGo application services for Kubernetes and Consul service mesh
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+

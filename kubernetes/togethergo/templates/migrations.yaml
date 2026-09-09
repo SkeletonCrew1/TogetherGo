@@ -1,0 +1,50 @@
+{{- if .Values.migrations.enabled }}
+{{- range $name := list "identity" "trip" "chat" }}
+{{- $service := index $.Values.services $name }}
+{{- if $service.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-migrate-%d" $name $.Release.Revision | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $.Values.namespace.name }}
+  labels:
+    {{- include "togethergo.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}-migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-migration
+        app.kubernetes.io/part-of: togethergo
+      {{- if $.Values.consul.enabled }}
+      annotations:
+        consul.hashicorp.com/connect-inject: "false"
+      {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: "{{ $service.image.repository }}:{{ $service.image.tag }}"
+          imagePullPolicy: {{ $service.image.pullPolicy }}
+          command:
+            {{- if eq $name "identity" }}
+            ["alembic", "upgrade", "head"]
+            {{- else }}
+            ["migrate", "up"]
+            {{- end }}
+          env:
+            - name: {{ upper $name }}_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "togethergo.secretName" $ }}
+                  key: {{ upper $name }}_DATABASE_URL
+{{- end }}
+{{- end }}
+{{- end }}

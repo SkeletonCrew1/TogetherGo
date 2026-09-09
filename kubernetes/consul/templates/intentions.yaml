@@ -1,0 +1,57 @@
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata: {name: identity, namespace: togethergo}
+spec: {protocol: http}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata: {name: identity, namespace: togethergo}
+spec:
+  destination: {name: identity}
+  sources:
+    - {name: togethergo-gateway, action: allow}
+    - {name: trip, action: allow}
+    - {name: chat, action: allow}
+    - {name: "*", action: deny}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata: {name: trip, namespace: togethergo}
+spec: {protocol: http}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata: {name: trip, namespace: togethergo}
+spec:
+  destination: {name: trip}
+  sources:
+    - {name: togethergo-gateway, action: allow}
+    - {name: "*", action: deny}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata: {name: chat, namespace: togethergo}
+spec: {protocol: http}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata: {name: chat, namespace: togethergo}
+spec:
+  destination: {name: chat}
+  sources:
+    - {name: togethergo-gateway, action: allow}
+    - {name: "*", action: deny}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata: {name: web, namespace: togethergo}
+spec: {protocol: http}
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata: {name: web, namespace: togethergo}
+spec:
+  destination: {name: web}
+  sources:
+    - {name: togethergo-gateway, action: allow}
+    - {name: "*", action: deny}
