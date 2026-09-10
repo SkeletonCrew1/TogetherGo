@@ -142,9 +142,9 @@ for synchronous request/response, RabbitMQ for everything asynchronous.
                      ┌──────────────────┐
    browser ─8080──▶  │ traefik (gateway)│ ──── /  (everything else) ───▶ web
                      └────────┬─────────┘                              (SPA)
-          /api/auth,users,ratings │ /api/trips,my │ /api/chat,/ws/chat
-                     ┌──────────┴───┬─────────────┴──┐
-                     ▼              ▼                ▼
+      /api/auth,users,ratings │ /api/trips,my   │ /api/chat,/ws/chat
+                   ┌──────────┴───┬─────────────┴──┐
+                   ▼              ▼                ▼
                 ┌─────────┐   ┌─────────┐      ┌─────────┐    ┌──────────────┐
                 │identity │   │  trip   │      │  chat   │    │ notification │
                 │ FastAPI │   │   Go    │      │   Go    │    │   FastAPI    │

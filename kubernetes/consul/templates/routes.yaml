@@ -1,0 +1,71 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: identity
+  namespace: togethergo
+spec:
+  parentRefs:
+    - name: togethergo-gateway
+      namespace: consul
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/auth}
+        - path: {type: PathPrefix, value: /api/users}
+        - path: {type: PathPrefix, value: /api/ratings}
+        - path: {type: PathPrefix, value: /.well-known}
+      backendRefs:
+        - name: identity
+          port: 8001
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: trip
+  namespace: togethergo
+spec:
+  parentRefs:
+    - name: togethergo-gateway
+      namespace: consul
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/trips}
+        - path: {type: PathPrefix, value: /api/my}
+      backendRefs:
+        - name: trip
+          port: 8002
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat
+  namespace: togethergo
+spec:
+  parentRefs:
+    - name: togethergo-gateway
+      namespace: consul
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /api/chat}
+        - path: {type: PathPrefix, value: /ws/chat}
+      backendRefs:
+        - name: chat
+          port: 8003
+---
+# Keep this route last conceptually: API prefixes are more specific and win.
+# /internal is never routed to identity, so it remains inaccessible externally.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: web
+  namespace: togethergo
+spec:
+  parentRefs:
+    - name: togethergo-gateway
+      namespace: consul
+  rules:
+    - matches:
+        - path: {type: PathPrefix, value: /}
+      backendRefs:
+        - name: web
+          port: 80
+

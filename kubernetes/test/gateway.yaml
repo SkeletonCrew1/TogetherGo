@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: togethergo-test-gateway, namespace: togethergo}
+data:
+  traefik.yml: |
+    entryPoints:
+      web:
+        address: ":80"
+    providers:
+      file:
+        filename: /etc/traefik/dynamic.yml
+    ping:
+      entryPoint: web
+  dynamic.yml: |
+    http:
+      routers:
+        identity:
+          rule: "PathPrefix(`/api/auth`) || PathPrefix(`/api/users`) || PathPrefix(`/api/ratings`) || PathPrefix(`/.well-known`)"
+          service: identity
+          priority: 100
+        trip:
+          rule: "PathPrefix(`/api/trips`) || PathPrefix(`/api/my`)"
+          service: trip
+          priority: 100
+        chat:
+          rule: "PathPrefix(`/api/chat`) || PathPrefix(`/ws/chat`)"
+          service: chat
+          priority: 100
+        block-internal:
+          rule: "PathPrefix(`/internal`)"
+          service: noop@internal
+          priority: 200
+        web:
+          rule: "PathPrefix(`/`)"
+          service: web
+          priority: 1
+      services:
+        identity:
+          loadBalancer: {servers: [{url: "http://identity:8001"}]}
+        trip:
+          loadBalancer: {servers: [{url: "http://trip:8002"}]}
+        chat:
+          loadBalancer: {servers: [{url: "http://chat:8003"}]}
+        web:
+          loadBalancer: {servers: [{url: "http://web:80"}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gateway, namespace: togethergo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: gateway}}
+  template:
+    metadata: {labels: {app: gateway}}
+    spec:
+      containers:
+        - name: traefik
+          image: traefik:v3.1
+          args: [--configFile=/etc/traefik/traefik.yml]
+          ports: [{name: http, containerPort: 80}]
+          volumeMounts: [{name: config, mountPath: /etc/traefik, readOnly: true}]
+          readinessProbe: {httpGet: {path: /ping, port: http}, initialDelaySeconds: 3, periodSeconds: 5}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+      volumes: [{name: config, configMap: {name: togethergo-test-gateway}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway, namespace: togethergo}
+spec:
+  type: LoadBalancer
+  selector: {app: gateway}
+  ports: [{name: http, port: 80, targetPort: http}]
