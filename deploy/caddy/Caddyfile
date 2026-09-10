@@ -1,0 +1,13 @@
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	@internal path /internal /internal/*
+	respond @internal 404
+
+	@backend path /api /api/* /ws /ws/* /.well-known /.well-known/*
+	reverse_proxy @backend gateway:80
+
+	reverse_proxy web:80
+}

@@ -17,6 +17,7 @@ a cluster that has already been deleted. The seam is the cluster boundary.
 terraform/
 ├── bootstrap/    long-lived. State bucket, lock table, ECR, GitHub OIDC.
 ├── cluster/      disposable. VPC, EKS, IRSA roles, ACM. Destroy freely.
+├── ec2-demo/     temporary. One Compose host, Elastic IP, DNS and HTTPS.
 └── modules/
     ├── tfstate-backend/    S3 + DynamoDB
     ├── ecr-repository/     one registry with a retention policy

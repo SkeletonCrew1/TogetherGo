@@ -1,0 +1,33 @@
+# Production-facing overlay for a temporary single-host EC2 deployment.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: togethergo-caddy
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:?set LETSENCRYPT_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - togethergo
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    volumes: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:

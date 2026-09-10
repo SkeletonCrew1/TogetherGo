@@ -1,0 +1,16 @@
+region      = "eu-north-1"
+environment = "demo"
+
+# Recommended while Docker builds all services on the instance.
+instance_type      = "t3.micro"
+root_volume_size_gb = 40
+
+# Set the domain. When Route 53 hosts its DNS, also set the existing public
+# zone ID. Otherwise create an A record at your DNS provider after apply.
+domain_name     = "togethergo.example.com"
+route53_zone_id = "Z0123456789EXAMPLE"
+
+# Session Manager is enabled by default, so SSH is optional. If used, never
+# set ssh_ingress_cidr to 0.0.0.0/0.
+# ssh_key_name     = "my-existing-key"
+# ssh_ingress_cidr = "203.0.113.10/32"
